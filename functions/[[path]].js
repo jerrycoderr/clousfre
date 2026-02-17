@@ -1,4 +1,4 @@
-const WORKER_BASE = "https://cdn-file.shaaxaaal.workers.dev";
+const WORKER_BASE = "https://cdn-file.shaaxaal.workers.dev";
 const MAX_SIZE = 25 * 1024 * 1024; // 25MB
 const SIZE_LIMIT_IMAGE = "https://cdn-file.zone.id/mylogo.png";
 
