@@ -23,10 +23,8 @@ export async function onRequest(context) {
   /* =======================
      EXTRACT REAL IP (Global)
   ======================= */
-  // We extract this here so BOTH uploads and normal proxying get the IP
-  const xff = request.headers.get("x-forwarded-for");
-  const realIP = xff ? xff.split(",")[0].trim() : request.headers.get("cf-connecting-ip") || "unknown";
-
+  // Safely grab the real user IP before doing anything else
+  const clientIP = request.headers.get("cf-connecting-ip") || "unknown";
   const isUpload = request.method === "POST" && url.pathname === "/upload";
 
   /* =================================================
@@ -47,8 +45,7 @@ export async function onRequest(context) {
         const workerRes = await fetch(`${WORKER_BASE}/upload`, {
           method: "POST",
           headers: {
-            "x-real-ip": realIP
-            // Note: fetch automatically generates the correct Content-Type for FormData objects
+            "X-Custom-Client-IP": clientIP // Pass the real IP via custom header
           },
           body: form,
         });
@@ -57,17 +54,16 @@ export async function onRequest(context) {
       }
 
       /* ---------- NORMAL UPLOAD ---------- */
-      // 🛠️ FIX: We must pass the Content-Type header so the Worker knows the form boundary
       const contentType = request.headers.get("content-type");
       
       const workerRes = await fetch(`${WORKER_BASE}/upload`, {
         method: "POST",
         headers: {
           ...(contentType ? { "Content-Type": contentType } : {}),
-          "x-real-ip": realIP
+          "X-Custom-Client-IP": clientIP // Pass the real IP via custom header
         },
         body: request.body,
-        duplex: "half" // Required by Cloudflare when proxying request.body streams
+        duplex: "half" 
       });
 
       return proxyResponse(workerRes);
@@ -87,8 +83,8 @@ export async function onRequest(context) {
     const target = WORKER_BASE + url.pathname + url.search;
     const headers = sanitizeHeaders(request.headers);
     
-    // 🛠️ FIX: Inject the Real IP for all other routes
-    headers.set("x-real-ip", realIP);
+    // Pass the real IP for all other dashboard/admin routes too
+    headers.set("X-Custom-Client-IP", clientIP);
 
     const workerRes = await fetch(target, {
       method: request.method,
@@ -126,8 +122,6 @@ async function proxyResponse(workerRes) {
   headers.delete("transfer-encoding");
   headers.set("Access-Control-Allow-Origin", "*");
 
-  // 🛠️ FIX: Stream the body directly instead of loading into arrayBuffer. 
-  // This prevents memory crashes on large files.
   return new Response(workerRes.body, {
     status: workerRes.status,
     headers,
