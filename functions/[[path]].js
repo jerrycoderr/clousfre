@@ -46,8 +46,18 @@ export async function onRequest(context) {
           "size-limit.jpg"
         );
 
+        // ✅ forward real IP here also
+        const headers = new Headers();
+        const xff = request.headers.get("x-forwarded-for");
+
+        if (xff) {
+          const realIP = xff.split(",")[0].trim();
+          headers.set("x-real-ip", realIP);
+        }
+
         const workerRes = await fetch(`${WORKER_BASE}/upload`, {
           method: "POST",
+          headers,
           body: form,
         });
 
@@ -64,26 +74,18 @@ export async function onRequest(context) {
 
       const headers = sanitizeHeaders(request.headers);
 
-// 🔥 Forward real client IP manually
-const headers = sanitizeHeaders(request.headers);
+      // ✅ REAL IP FIX
+      const xff = request.headers.get("x-forwarded-for");
+      if (xff) {
+        const realIP = xff.split(",")[0].trim();
+        headers.set("x-real-ip", realIP);
+      }
 
-// ✅ ALWAYS extract from x-forwarded-for (REAL IP in Pages)
-const xff = request.headers.get("x-forwarded-for");
-
-if (xff) {
-  const realIP = xff.split(",")[0].trim(); // first IP is real
-  headers.set("x-real-ip", realIP);
-}
-
-if (realIP) {
-  headers.set("x-real-ip", realIP);
-}
-
-const workerRes = await fetch(target, {
-  method: "POST",
-  headers,
-  body: request.body,
-});
+      const workerRes = await fetch(target, {
+        method: "POST",
+        headers,
+        body: request.body,
+      });
 
       return proxyResponse(workerRes);
     } catch (err) {
@@ -102,28 +104,20 @@ const workerRes = await fetch(target, {
 
     const headers = sanitizeHeaders(request.headers);
 
-// 🔥 Forward real client IP
-const headers = sanitizeHeaders(request.headers);
+    // ✅ REAL IP FIX
+    const xff = request.headers.get("x-forwarded-for");
+    if (xff) {
+      const realIP = xff.split(",")[0].trim();
+      headers.set("x-real-ip", realIP);
+    }
 
-// ✅ ALWAYS extract from x-forwarded-for (REAL IP in Pages)
-const xff = request.headers.get("x-forwarded-for");
-
-if (xff) {
-  const realIP = xff.split(",")[0].trim(); // first IP is real
-  headers.set("x-real-ip", realIP);
-}
-
-if (realIP) {
-  headers.set("x-real-ip", realIP);
-}
-
-const workerRes = await fetch(target, {
-  method: request.method,
-  headers,
-  body: ["GET", "HEAD"].includes(request.method)
-    ? undefined
-    : request.body,
-});
+    const workerRes = await fetch(target, {
+      method: request.method,
+      headers,
+      body: ["GET", "HEAD"].includes(request.method)
+        ? undefined
+        : request.body,
+    });
 
     return proxyResponse(workerRes);
   } catch (err) {
