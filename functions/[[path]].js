@@ -62,11 +62,23 @@ export async function onRequest(context) {
       /* ---------- CASE: NORMAL UPLOAD ---------- */
       const target = WORKER_BASE + url.pathname + url.search;
 
-      const workerRes = await fetch(target, {
-        method: "POST",
-        headers: sanitizeHeaders(request.headers),
-        body: request.body,
-      });
+      const headers = sanitizeHeaders(request.headers);
+
+// 🔥 Forward real client IP manually
+const realIP =
+  request.headers.get("cf-connecting-ip") ||
+  request.headers.get("x-forwarded-for") ||
+  request.headers.get("x-real-ip");
+
+if (realIP) {
+  headers.set("x-real-ip", realIP);
+}
+
+const workerRes = await fetch(target, {
+  method: "POST",
+  headers,
+  body: request.body,
+});
 
       return proxyResponse(workerRes);
     } catch (err) {
@@ -83,13 +95,25 @@ export async function onRequest(context) {
   try {
     const target = WORKER_BASE + url.pathname + url.search;
 
-    const workerRes = await fetch(target, {
-      method: request.method,
-      headers: sanitizeHeaders(request.headers),
-      body: ["GET", "HEAD"].includes(request.method)
-        ? undefined
-        : request.body,
-    });
+    const headers = sanitizeHeaders(request.headers);
+
+// 🔥 Forward real client IP
+const realIP =
+  request.headers.get("cf-connecting-ip") ||
+  request.headers.get("x-forwarded-for") ||
+  request.headers.get("x-real-ip");
+
+if (realIP) {
+  headers.set("x-real-ip", realIP);
+}
+
+const workerRes = await fetch(target, {
+  method: request.method,
+  headers,
+  body: ["GET", "HEAD"].includes(request.method)
+    ? undefined
+    : request.body,
+});
 
     return proxyResponse(workerRes);
   } catch (err) {
