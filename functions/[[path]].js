@@ -25,50 +25,63 @@ export async function onRequest(context) {
   const isUpload =
     request.method === "POST" && url.pathname === "/upload";
 
-  /* =================================================
-     SPECIAL HANDLER — /upload
-  ================================================= */
-  if (isUpload) {
-    try {
-      const contentLength = Number(
-        request.headers.get("content-length") || 0
+ /* =================================================
+   SPECIAL HANDLER — /upload (DIRECT WORKER CALL)
+================================================= */
+if (isUpload) {
+  try {
+    const contentLength = Number(
+      request.headers.get("content-length") || 0
+    );
+
+    /* ---------- CASE: FILE TOO LARGE ---------- */
+    if (contentLength > MAX_SIZE) {
+      const imgRes = await fetch(SIZE_LIMIT_IMAGE);
+      const imgBuffer = await imgRes.arrayBuffer();
+
+      const form = new FormData();
+      form.append(
+        "file",
+        new Blob([imgBuffer], { type: "image/jpeg" }),
+        "size-limit.jpg"
       );
 
-      /* ---------- CASE: FILE TOO LARGE ---------- */
-      if (contentLength > MAX_SIZE) {
-        const imgRes = await fetch(SIZE_LIMIT_IMAGE);
-        const imgBuffer = await imgRes.arrayBuffer();
+      // ✅ DIRECT call to Worker (NO proxy headers)
+      const workerRes = await fetch(`${WORKER_BASE}/upload`, {
+        method: "POST",
+        body: form,
+      });
 
-        const form = new FormData();
-        form.append(
-          "file",
-          new Blob([imgBuffer], { type: "image/jpeg" }),
-          "size-limit.jpg"
-        );
+      return new Response(await workerRes.arrayBuffer(), {
+        status: workerRes.status,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+        },
+      });
+    }
 
-        // ✅ forward real IP here also
-        const headers = new Headers();
-        const xff = request.headers.get("x-forwarded-for");
+    /* ---------- CASE: NORMAL UPLOAD ---------- */
 
-        if (xff) {
-          const realIP = xff.split(",")[0].trim();
-          headers.set("x-real-ip", realIP);
-        }
+    // ✅ DIRECT PASS (IMPORTANT: no custom headers)
+    const workerRes = await fetch(`${WORKER_BASE}/upload`, {
+      method: "POST",
+      body: request.body,
+    });
 
-        const workerRes = await fetch(`${WORKER_BASE}/upload`, {
-          method: "POST",
-          headers,
-          body: form,
-        });
+    return new Response(await workerRes.arrayBuffer(), {
+      status: workerRes.status,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
 
-        return new Response(await workerRes.arrayBuffer(), {
-          status: workerRes.status,
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-          },
-        });
-      }
-
+  } catch (err) {
+    return new Response(
+      JSON.stringify({ error: "Upload failed" }),
+      { status: 500 }
+    );
+  }
+}
       /* ---------- CASE: NORMAL UPLOAD ---------- */
       const target = WORKER_BASE + url.pathname + url.search;
 
