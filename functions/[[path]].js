@@ -65,10 +65,15 @@ export async function onRequest(context) {
       const headers = sanitizeHeaders(request.headers);
 
 // 🔥 Forward real client IP manually
-const realIP =
-  request.headers.get("cf-connecting-ip") ||
-  request.headers.get("x-forwarded-for") ||
-  request.headers.get("x-real-ip");
+const headers = sanitizeHeaders(request.headers);
+
+// ✅ ALWAYS extract from x-forwarded-for (REAL IP in Pages)
+const xff = request.headers.get("x-forwarded-for");
+
+if (xff) {
+  const realIP = xff.split(",")[0].trim(); // first IP is real
+  headers.set("x-real-ip", realIP);
+}
 
 if (realIP) {
   headers.set("x-real-ip", realIP);
@@ -98,10 +103,15 @@ const workerRes = await fetch(target, {
     const headers = sanitizeHeaders(request.headers);
 
 // 🔥 Forward real client IP
-const realIP =
-  request.headers.get("cf-connecting-ip") ||
-  request.headers.get("x-forwarded-for") ||
-  request.headers.get("x-real-ip");
+const headers = sanitizeHeaders(request.headers);
+
+// ✅ ALWAYS extract from x-forwarded-for (REAL IP in Pages)
+const xff = request.headers.get("x-forwarded-for");
+
+if (xff) {
+  const realIP = xff.split(",")[0].trim(); // first IP is real
+  headers.set("x-real-ip", realIP);
+}
 
 if (realIP) {
   headers.set("x-real-ip", realIP);
