@@ -47,10 +47,17 @@ export async function onRequest(context) {
         );
 
         // ✅ DIRECT call to Worker (no headers)
-        const workerRes = await fetch(`${WORKER_BASE}/upload`, {
-          method: "POST",
-          body: form,
-        });
+        /* ---------- NORMAL UPLOAD ---------- */
+
+const contentType = request.headers.get("content-type");
+
+const workerRes = await fetch(`${WORKER_BASE}/upload`, {
+  method: "POST",
+  headers: contentType
+    ? { "Content-Type": contentType }
+    : {},
+  body: request.body,
+});
 
         return new Response(await workerRes.arrayBuffer(), {
           status: workerRes.status,
