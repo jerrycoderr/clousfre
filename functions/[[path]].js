@@ -14,25 +14,27 @@ export async function onRequest(context) {
       status: 204,
       headers: {
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods":
-          "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers":
-          "Content-Type, Authorization, X-Requested-With",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
       },
     });
   }
 
-  const isUpload =
-    request.method === "POST" && url.pathname === "/upload";
+  /* =======================
+     EXTRACT REAL IP (Global)
+  ======================= */
+  // We extract this here so BOTH uploads and normal proxying get the IP
+  const xff = request.headers.get("x-forwarded-for");
+  const realIP = xff ? xff.split(",")[0].trim() : request.headers.get("cf-connecting-ip") || "unknown";
+
+  const isUpload = request.method === "POST" && url.pathname === "/upload";
 
   /* =================================================
      SPECIAL HANDLER — /upload (DIRECT WORKER CALL)
   ================================================= */
   if (isUpload) {
     try {
-      const contentLength = Number(
-        request.headers.get("content-length") || 0
-      );
+      const contentLength = Number(request.headers.get("content-length") || 0);
 
       /* ---------- CASE: FILE TOO LARGE ---------- */
       if (contentLength > MAX_SIZE) {
@@ -40,51 +42,41 @@ export async function onRequest(context) {
         const imgBuffer = await imgRes.arrayBuffer();
 
         const form = new FormData();
-        form.append(
-          "file",
-          new Blob([imgBuffer], { type: "image/jpeg" }),
-          "size-limit.jpg"
-        );
+        form.append("file", new Blob([imgBuffer], { type: "image/png" }), "size-limit.png");
 
-        // ✅ DIRECT call to Worker (no headers)
-        /* ---------- NORMAL UPLOAD ---------- */
-
-const contentType = request.headers.get("content-type");
-
-const workerRes = await fetch(`${WORKER_BASE}/upload`, {
-  method: "POST",
-  headers: contentType
-    ? { "Content-Type": contentType }
-    : {},
-  body: request.body,
-});
-
-        return new Response(await workerRes.arrayBuffer(), {
-          status: workerRes.status,
+        const workerRes = await fetch(`${WORKER_BASE}/upload`, {
+          method: "POST",
           headers: {
-            "Access-Control-Allow-Origin": "*",
+            "x-real-ip": realIP
+            // Note: fetch automatically generates the correct Content-Type for FormData objects
           },
+          body: form,
         });
+
+        return proxyResponse(workerRes);
       }
 
       /* ---------- NORMAL UPLOAD ---------- */
+      // 🛠️ FIX: We must pass the Content-Type header so the Worker knows the form boundary
+      const contentType = request.headers.get("content-type");
+      
       const workerRes = await fetch(`${WORKER_BASE}/upload`, {
         method: "POST",
+        headers: {
+          ...(contentType ? { "Content-Type": contentType } : {}),
+          "x-real-ip": realIP
+        },
         body: request.body,
+        duplex: "half" // Required by Cloudflare when proxying request.body streams
       });
 
-      return new Response(await workerRes.arrayBuffer(), {
-        status: workerRes.status,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-        },
-      });
+      return proxyResponse(workerRes);
 
     } catch (err) {
-      return new Response(
-        JSON.stringify({ error: "Upload failed" }),
-        { status: 500 }
-      );
+      return new Response(JSON.stringify({ error: "Upload failed: " + err.message }), { 
+        status: 500,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+      });
     }
   }
 
@@ -93,41 +85,25 @@ const workerRes = await fetch(`${WORKER_BASE}/upload`, {
   ================================================= */
   try {
     const target = WORKER_BASE + url.pathname + url.search;
-
     const headers = sanitizeHeaders(request.headers);
-
-    // ✅ extract real IP (only for non-upload routes)
-    const xff = request.headers.get("x-forwarded-for");
-
-    let realIP = null;
-
-    if (xff) {
-      realIP = xff.split(",")[0].trim();
-    }
-
-    if (!realIP) {
-      realIP = request.headers.get("cf-connecting-ip");
-    }
-
-    if (realIP) {
-      headers.set("x-real-ip", realIP);
-    }
+    
+    // 🛠️ FIX: Inject the Real IP for all other routes
+    headers.set("x-real-ip", realIP);
 
     const workerRes = await fetch(target, {
       method: request.method,
       headers,
-      body: ["GET", "HEAD"].includes(request.method)
-        ? undefined
-        : request.body,
+      body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
+      ...(!["GET", "HEAD"].includes(request.method) ? { duplex: "half" } : {})
     });
 
     return proxyResponse(workerRes);
 
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: "Internal proxy error" }),
-      { status: 500 }
-    );
+    return new Response(JSON.stringify({ error: "Internal proxy error" }), { 
+      status: 500,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+    });
   }
 }
 
@@ -150,7 +126,9 @@ async function proxyResponse(workerRes) {
   headers.delete("transfer-encoding");
   headers.set("Access-Control-Allow-Origin", "*");
 
-  return new Response(await workerRes.arrayBuffer(), {
+  // 🛠️ FIX: Stream the body directly instead of loading into arrayBuffer. 
+  // This prevents memory crashes on large files.
+  return new Response(workerRes.body, {
     status: workerRes.status,
     headers,
   });
