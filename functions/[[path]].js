@@ -74,12 +74,23 @@ export async function onRequest(context) {
 
       const headers = sanitizeHeaders(request.headers);
 
-      // ✅ REAL IP FIX
-      const xff = request.headers.get("x-forwarded-for");
-      if (xff) {
-        const realIP = xff.split(",")[0].trim();
-        headers.set("x-real-ip", realIP);
-      }
+// ✅ extract real IP from x-forwarded-for (Pages side)
+const xff = request.headers.get("x-forwarded-for");
+
+let realIP = null;
+
+if (xff) {
+  realIP = xff.split(",")[0].trim();
+}
+
+// fallback (just in case)
+if (!realIP) {
+  realIP = request.headers.get("cf-connecting-ip");
+}
+
+if (realIP) {
+  headers.set("x-real-ip", realIP);
+}
 
       const workerRes = await fetch(target, {
         method: "POST",
@@ -104,12 +115,23 @@ export async function onRequest(context) {
 
     const headers = sanitizeHeaders(request.headers);
 
-    // ✅ REAL IP FIX
-    const xff = request.headers.get("x-forwarded-for");
-    if (xff) {
-      const realIP = xff.split(",")[0].trim();
-      headers.set("x-real-ip", realIP);
-    }
+// ✅ extract real IP from x-forwarded-for (Pages side)
+const xff = request.headers.get("x-forwarded-for");
+
+let realIP = null;
+
+if (xff) {
+  realIP = xff.split(",")[0].trim();
+}
+
+// fallback (just in case)
+if (!realIP) {
+  realIP = request.headers.get("cf-connecting-ip");
+}
+
+if (realIP) {
+  headers.set("x-real-ip", realIP);
+}
 
     const workerRes = await fetch(target, {
       method: request.method,
